@@ -176,18 +176,28 @@ def _same_for_equals(left, right) -> bool:
     return False
 
 
-def _make_comparison(who: str, predicate):
-    """生成一个链式比较过程：相邻两两都满足 predicate 才返回 #t。"""
+def _make_ordering(who: str, predicate):
+    """生成 ``< > <= >=``：相邻两两都要满足大小关系（spec §5 链式比较）。"""
 
     def compare(args):
-        if len(args) < 2:
-            return True  # 单项比较平凡为真
         for left, right in zip(args, args[1:]):
             if not predicate(_compare_order(left, right, who)):
                 return False
         return True
 
     return compare
+
+
+def _builtin_equals(args):
+    """``=``：相邻两两等值即为真。
+
+    刻意不走「比较大小」那条路：``=`` 只需要判等，遇到布尔或不同类型时
+    直接给出 #f 而不是报错（spec §10 说明出错行为未定义，从宽处理更稳）。
+    """
+    for left, right in zip(args, args[1:]):
+        if not _same_for_equals(left, right):
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -315,11 +325,11 @@ _PROCEDURES = [
     ("expt", _builtin_expt, 2, 2),
     ("abs", _builtin_abs, 1, 1),
     # 比较
-    ("=", _make_comparison("=", lambda order: order == 0), 1, None),
-    ("<", _make_comparison("<", lambda order: order < 0), 1, None),
-    (">", _make_comparison(">", lambda order: order > 0), 1, None),
-    ("<=", _make_comparison("<=", lambda order: order <= 0), 1, None),
-    (">=", _make_comparison(">=", lambda order: order >= 0), 1, None),
+    ("=", _builtin_equals, 1, None),
+    ("<", _make_ordering("<", lambda order: order < 0), 1, None),
+    (">", _make_ordering(">", lambda order: order > 0), 1, None),
+    ("<=", _make_ordering("<=", lambda order: order <= 0), 1, None),
+    (">=", _make_ordering(">=", lambda order: order >= 0), 1, None),
     # 布尔
     ("not", lambda args: not is_truthy(args[0]), 1, 1),
     # 列表
