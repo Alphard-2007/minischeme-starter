@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 
+from environment import Environment
 from errors import SchemeArityError, SchemeTypeError, SchemeValueError
 from printer import to_display_string
 from values import (
@@ -23,6 +24,7 @@ from values import (
     Pair,
     Symbol,
     build_list,
+    is_number,
     is_procedure,
     is_truthy,
     pair_to_list,
@@ -37,17 +39,10 @@ from values import (
 
 __all__ = ["make_global_env"]
 
-from environment import Environment  # 放在函数导入之后，避免循环依赖问题
-
 
 # ---------------------------------------------------------------------------
 # 算术
 # ---------------------------------------------------------------------------
-
-def _is_number(value) -> bool:
-    """是数字（bool 虽然是 int 的子类，但不是数字）。"""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
 
 def _numbers(args, who: str):
     """把参数全部校验成数字。"""
@@ -154,7 +149,7 @@ def _compare_order(left, right, who: str):
     支持数字、符号（按名字字典序）与字符串（按字典序）；
     不同类型之间无法排序，报错。
     """
-    if _is_number(left) and _is_number(right):
+    if is_number(left) and is_number(right):
         return -1 if left < right else (0 if left == right else 1)
     if isinstance(left, Symbol) and isinstance(right, Symbol):
         return -1 if left.name < right.name else (0 if left.name == right.name else 1)
@@ -165,7 +160,7 @@ def _compare_order(left, right, who: str):
 
 def _same_for_equals(left, right) -> bool:
     """``=`` 的相邻两项比较：数字比值、符号比名字、字符串比内容，其余为假。"""
-    if _is_number(left) and _is_number(right):
+    if is_number(left) and is_number(right):
         return left == right
     if isinstance(left, Symbol) and isinstance(right, Symbol):
         return left.name == right.name
@@ -257,7 +252,7 @@ def _builtin_listp(args):
 # ---------------------------------------------------------------------------
 
 def _builtin_numberp(args):
-    return _is_number(args[0])
+    return is_number(args[0])
 
 
 def _builtin_booleanp(args):

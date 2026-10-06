@@ -1,0 +1,29 @@
+down
+0
+up
+20000
+deep-list
+20000
+#t
+#f
+()
+42
+1
+(a . b)
+()
+(quote z)
+(1 (2 (3)))
+#t
+#t
+0
+1.5
+8
+1
+0
+(1 2 3)
+()
+b
+zero-arg
+mixed
+
+done

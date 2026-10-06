@@ -29,11 +29,18 @@ __all__ = [
     "Closure",
     "Pair",
     "Symbol",
+    "build_list",
+    "is_number",
+    "is_procedure",
     "is_truthy",
     "pair_to_list",
+    "parse_number_literal",
     "proper_list",
-    "scheme_equal",
+    "require_number",
+    "require_pair",
+    "require_proper_list",
     "scheme_eq",
+    "scheme_equal",
     "symbol",
 ]
 
@@ -228,8 +235,8 @@ def is_truthy(value) -> bool:
     return value is not False
 
 
-def _is_number(value) -> bool:
-    """是数字（bool 虽然是 int 的子类，但不算数字）。"""
+def is_number(value) -> bool:
+    """是否为数字。``bool`` 虽然是 ``int`` 的子类，但**不是**数字。"""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
@@ -240,7 +247,7 @@ def scheme_eq(left, right) -> bool:
         return left is right
     if isinstance(left, Symbol) or isinstance(right, Symbol):
         return isinstance(left, Symbol) and isinstance(right, Symbol) and left.name == right.name
-    if _is_number(left) and _is_number(right):
+    if is_number(left) and is_number(right):
         # 整数与浮点视为不同（(eq? 1 1.0) 为假），同类型才比值。
         return type(left) is type(right) and left == right
     return left is right
@@ -258,7 +265,7 @@ def scheme_equal(left, right) -> bool:
         return scheme_equal(left.car, right.car) and scheme_equal(left.cdr, right.cdr)
     if isinstance(left, Pair) or isinstance(right, Pair):
         return False  # 一个是点对、另一个不是
-    if _is_number(left) and _is_number(right):
+    if is_number(left) and is_number(right):
         return left == right  # equal? 按数值比较：1 与 1.0 相等
     return left is right
 
@@ -268,7 +275,7 @@ def scheme_equal(left, right) -> bool:
 # ---------------------------------------------------------------------------
 
 def require_number(value, who: str):
-    if not _is_number(value):
+    if not is_number(value):
         raise SchemeTypeError(f"{who}：参数必须是数字，收到 {_describe(value)}")
     return value
 

@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from environment import Environment
-from errors import SchemeArityError, SchemeSyntaxError, SchemeTypeError
+from errors import SchemeSyntaxError, SchemeTypeError
 from values import (
     EMPTY,
     Builtin,
@@ -50,50 +50,55 @@ def _special_form(name: str):
 # ---------------------------------------------------------------------------
 
 def evaluate(expr, env: Environment):
-    """求值一个表达式，返回它的值（``None`` 表示「无值」，不打印）。"""
-    # 括号表达式（点对链）：特殊形式或函数调用
-    if isinstance(expr, Pair):
-        return _eval_pair(expr, env)
+    """求值一个表达式，返回它的值（``None`` 表示「无值」，不打印）。
 
-    # 符号：去环境里查（沿作用域链向外）
+    括号表达式的处理**内联**在这里，而不是再转一层函数：每层 Scheme 调用
+    少一个 Python 栈帧，可用递归深度就能翻一倍（深递归是常见用例）。
+    """
+    # --- 括号表达式（点对链）：特殊形式或函数调用 ---
+    if isinstance(expr, Pair):
+        head = expr.car
+
+        # 特殊形式：头部是关键字符号，按 spec §4 各自的规则求值
+        if isinstance(head, Symbol) and head in _SPECIAL_FORMS:
+            return _SPECIAL_FORMS[head](expr.cdr, env)
+
+        # 普通函数调用：先求值操作符，再从左到右求值全部实参（应用序，spec §9）
+        procedure = evaluate(head, env)
+        args = [evaluate(item, env) for item in pair_to_list(expr.cdr, "函数调用")]
+        return apply_procedure(procedure, args)
+
+    # --- 符号：去环境里查（沿作用域链向外）---
     if isinstance(expr, Symbol):
         return env.lookup(expr)
 
-    # 自求值数据：数字、布尔、字符串、空表
-    if expr is None or isinstance(expr, (int, float, str, bool)) or expr is EMPTY:
-        if expr is None:
-            raise SchemeSyntaxError("表达式缺失：这里应该有一个值")
+    # --- 自求值数据：数字、布尔、字符串、空表 ---
+    if expr is None:
+        # 空括号 () 被解析成 EMPTY 而不是 None；能走到这里说明源码缺了表达式
+        raise SchemeSyntaxError("表达式缺失：这里应该有一个值")
+    if isinstance(expr, (int, float, str, bool)) or expr is EMPTY:
         return expr
 
     raise SchemeSyntaxError(f"无法求值的表达式：{expr!r}")
 
 
-def _eval_pair(expr: Pair, env: Environment):
-    head = expr.car
-
-    # 特殊形式：头部是关键字符号（且该符号确实被当作关键字使用）
-    if isinstance(head, Symbol) and head in _SPECIAL_FORMS:
-        return _SPECIAL_FORMS[head](expr.cdr, env)
-
-    # 普通函数调用：先求值操作符，再从左到右求值全部实参（应用序，spec §9）
-    procedure = evaluate(head, env)
-    args = [evaluate(item, env) for item in pair_to_list(expr.cdr, "函数调用")]
-    return apply_procedure(procedure, args)
-
-
 def apply_procedure(procedure, args: list):
     """调用一个过程。``args`` 是已经求值完毕的实参列表。"""
-    if isinstance(procedure, Builtin):
-        procedure.check_arity(args)
-        return procedure.fn(args)
-
     if isinstance(procedure, Closure):
         procedure.check_arity(args)
-        # 新建一层环境：外层指向闭包**定义时**的环境（词法作用域）
+        # 新建一层环境：外层指向闭包**定义时**的环境（词法作用域，spec §9）
         frame = procedure.env.child(procedure.name or "匿名函数")
         for param, value in zip(procedure.params, args):
             frame.define(param, value)
-        return eval_body(procedure.body, frame)
+        body = procedure.body
+        # 函数体只有一个表达式时直接求值（最常见的情形，省一个栈帧）
+        if len(body) == 1:
+            return evaluate(body[0], frame)
+        return eval_body(body, frame)
+
+    if isinstance(procedure, Builtin):
+        procedure.check_arity(args)
+        return procedure.fn(args)
 
     raise SchemeTypeError(
         f"不能把 {_brief(procedure)} 当函数调用（它不是过程）"
@@ -285,7 +290,3 @@ def _brief(value) -> str:
     if value is None:
         return "无值"
     return repr(value)
-
-
-# 让静态检查知道这些导入确实被用到
-_ = (SchemeArityError,)

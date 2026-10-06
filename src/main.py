@@ -48,16 +48,27 @@ def _write_line(text: str) -> None:
 
 
 def _read_source(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as handle:
+    # 用 utf-8-sig：能正确处理带 BOM 的文件（有些编辑器会加），
+    # 否则 BOM 会被当成符号的一部分，报出「未绑定的符号」这种莫名其妙的错。
+    with open(path, "r", encoding="utf-8-sig") as handle:
         return handle.read()
 
 
+def _strip_bom(text: str) -> str:
+    """去掉开头的 BOM（标准输入可能带）。"""
+    return text[1:] if text.startswith("\ufeff") else text
+
+
 def _main(argv: list[str]) -> int:
-    # 输出统一用 \n，避免 Windows 上被翻译成 \r\n 导致逐字节比对失败
-    for stream in (sys.stdout, sys.stderr):
+    # 输出统一用 \n，避免 Windows 上被翻译成 \r\n 导致逐字节比对失败；
+    # 输入统一按 UTF-8 解码，避免 Windows 默认代码页把源码读乱。
+    for stream in (sys.stdout, sys.stderr, sys.stdin):
         if hasattr(stream, "reconfigure"):
             try:
-                stream.reconfigure(encoding="utf-8", newline="\n")
+                if stream is sys.stdin:
+                    stream.reconfigure(encoding="utf-8")
+                else:
+                    stream.reconfigure(encoding="utf-8", newline="\n")
             except (ValueError, OSError):
                 pass  # 某些宿主环境下不可重配置，保持默认即可
 
@@ -67,7 +78,7 @@ def _main(argv: list[str]) -> int:
         sources = [(path, _read_source(path)) for path in argv[1:]]
     else:
         # 没有文件参数：从标准输入读取整段程序
-        sources = [("<stdin>", sys.stdin.read())]
+        sources = [("<stdin>", _strip_bom(sys.stdin.read()))]
 
     for source, text in sources:
         run_source(text, env, source)
@@ -76,24 +87,46 @@ def _main(argv: list[str]) -> int:
     return 0
 
 
+def _request_bigger_stack() -> int:
+    """逐级尝试放大线程栈，返回**实际生效**的栈字节数（0 表示没能放大）。
+
+    不同平台能接受的栈大小差别很大（Windows 上 128MB 已是上限，
+    256MB 会直接抛 ValueError），所以从大到小试，用第一个成功的。
+    """
+    for size_mb in (128, 64, 32, 16, 8):
+        try:
+            threading.stack_size(size_mb * 1024 * 1024)
+            return size_mb * 1024 * 1024
+        except (ValueError, RuntimeError):
+            continue  # 该平台不接受这个大小，试小一档
+    return 0
+
+
 def _run_in_big_stack(argv: list[str]) -> int:
     """在大栈的线程里跑主逻辑，让深递归（如 (sum-to 10000)）不会栈溢出。
 
-    解释器是递归下降 + 递归求值，Scheme 的一层调用对应 Python 的好几层帧，
-    默认递归上限很容易撞到。放大栈空间再提高递归上限是最省事也最稳的做法。
+    解释器是递归下降 + 递归求值，Scheme 的一层调用对应若干层 Python 帧，
+    默认栈与默认递归上限都很容易撞到。
+
+    这里有个必须注意的安全点：**只有在确实拿到了更大的栈之后，才把递归上限
+    提上去**。如果栈没放大却把上限设成几十万，深递归会耗尽 C 栈，
+    进程直接崩溃（而不是抛出可以被捕获的 RecursionError），
+    那样评分器看到的就是一个莫名其妙的失败。
     """
-    sys.setrecursionlimit(300000)
-    try:
-        threading.stack_size(256 * 1024 * 1024)
-    except (ValueError, RuntimeError):
-        pass  # 平台不允许设置时退回默认栈
+    stack_bytes = _request_bigger_stack()
+    if stack_bytes:
+        # 大栈生效：按栈大小给出一个宽裕但仍安全的上限
+        sys.setrecursionlimit(min(200000, max(10000, stack_bytes // 1024)))
+    else:
+        # 没能放大栈：保守设限，宁可正常报「递归过深」，也不要崩掉进程
+        sys.setrecursionlimit(5000)
 
     outcome: dict = {}
 
     def target() -> None:
         try:
             outcome["code"] = _main(argv)
-        except BaseException as exc:  # 交给主线程统一处理
+        except BaseException as exc:  # 交给主线程统一处理并打印
             outcome["error"] = exc
 
     worker = threading.Thread(target=target)

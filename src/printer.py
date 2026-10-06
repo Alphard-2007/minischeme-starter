@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from errors import SchemeError
-from values import EMPTY, Builtin, Closure, Pair, Symbol, is_procedure
+from values import EMPTY, Pair, Symbol, is_procedure
 
 __all__ = ["to_display_string", "to_repr_string"]
 
@@ -107,7 +107,3 @@ def _quote_string(text: str) -> str:
             pieces.append(char)
     pieces.append('"')
     return "".join(pieces)
-
-
-# 让静态检查工具知道这些导入是被用到的（Builtin/Closure 通过 is_procedure 间接使用）
-_ = (Builtin, Closure)
